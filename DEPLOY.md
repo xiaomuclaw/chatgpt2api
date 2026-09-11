@@ -410,6 +410,41 @@ curl -s -H "Authorization: Bearer $K" "http://127.0.0.1:8001/api/accounts?page_s
 
 ---
 
+## 八·五、iCloud 隐私邮箱（可选功能）
+
+主程序内置「iCloud 邮箱」页面（侧边栏可见），用于集中管理 Apple 登录态、创建 Hide My Email 隐私邮箱、接收验证码邮件。
+
+它是一个**独立 sidecar 服务**（Go，容器名 `icloud-privacy-mail`，端口 8787），主程序通过内部代理转发管理请求。
+
+### 启用
+
+```bash
+# 在 compose 中启用 local-icloud profile
+docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d
+```
+
+`.env` 补充：
+
+```env
+ICLOUD_PRIVACY_MAIL_BASE_URL=http://icloud-privacy-mail:8787
+ICLOUD_PRIVACY_MAIL_API_KEY=<随机密钥>
+ICLOUD_PRIVACY_MAIL_NO_PROXY=127.0.0.1,localhost,icloud-privacy-mail,.apple.com,.icloud.com
+```
+
+> 不加 `--profile local-icloud` 时 sidecar 不启动，iCloud 页面会显示"模块不可用"，其余功能不受影响。
+
+### 访问路径
+
+| 路径 | 说明 |
+|---|---|
+| 控制台 `/#/icloud` | iCloud 邮箱管理页（需管理员密钥登录） |
+| `GET /api/icloud/bridge-status` | sidecar 连通性 |
+| `/api/icloud/*` | 转发到 sidecar 的 `/api/*` |
+
+### 数据位置
+
+`./data/icloud-privacy-mail/`（Apple 登录态、隐私邮箱、验证码邮件均存于此，**迁移时需一并拷贝**）。
+
 ## 九、常见问题
 
 | 现象 | 原因 | 处理 |

@@ -30,6 +30,12 @@ export const appRoutes: RouteRecordRaw[] = [
         meta: { requiredCapability: 'admin_console', management: true },
       },
       {
+        path: 'icloud',
+        name: 'icloud',
+        component: () => import('@/views/ICloudPrivacyMail.vue'),
+        meta: { requiredCapability: 'admin_console', management: true },
+      },
+      {
         path: 'settings',
         name: 'settings',
         component: () => import('@/views/Settings.vue'),
