@@ -1,3 +1,6 @@
+> **部署必读**：本仓库为「主程序」，需与「注册引擎」（私有仓库 `gptGrok2api-py`）配合部署。
+> 完整双服务部署步骤（含 Nginx 分流、账号同步）见 [DEPLOY.md](./DEPLOY.md)。
+
 <p align="center">
   <img src="web-vue/public/logo.svg" width="112" alt="ChatGPT2API logo" />
 </p>
