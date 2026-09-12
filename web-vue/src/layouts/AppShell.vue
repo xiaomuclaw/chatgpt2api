@@ -810,11 +810,10 @@ const menuItems: NavigationItem[] = [
     capability: 'admin_console',
   },
   {
-    path: '/register/',
+    path: '/register',
     label: '注册账号',
     icon: 'M12 2a5 5 0 1 1 0 10A5 5 0 0 1 12 2zm0 12c2.8 0 5.2 1.4 6.3 3.5l-1.7 1c-.8-1.5-2.6-2.5-4.6-2.5s-3.8 1-4.6 2.5l-1.7-1C6.8 15.4 9.2 14 12 14zm7-1v3h3v2h-3v3h-2v-3h-3v-2h3v-3h2z',
     capability: 'admin_console',
-    external: true,
   },
   {
     path: '/logs',
@@ -856,6 +855,7 @@ const routeTitleMap: Record<string, string> = {
   proxy: '代理管理',
   settings: '系统设置',
   icloud: 'iCloud 邮箱',
+  register: '注册账号',
   monitor: '实时监控',
   studio: '对话画图',
 }
@@ -1063,6 +1063,7 @@ const routeViewLoaders: Record<string, () => Promise<unknown>> = {
   '/gallery': () => import('@/views/Gallery.vue'),
   '/monitor': () => import('@/views/Monitor.vue'),
   '/proxy': () => import('@/views/Proxy.vue'),
+  '/register': () => import('@/views/Register.vue'),
   '/settings': () => import('@/views/Settings.vue'),
   '/studio': () => import('@/views/Studio.vue'),
 }
