@@ -73,3 +73,38 @@ docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud 
 | `integration/assets/` | 增补文件快照（43 个） |
 | `integration/attach.py` | 一键贴回增补（幂等） |
 | `integration/sync-from-engine.sh` | 从注册引擎刷新前端快照 |
+
+## nginx 路由约定（重要）
+
+站点下**只暴露一个控制台**（chatgpt2api 自身，含内嵌注册页）：
+
+```
+/                 -> chatgpt2api 控制台（含侧边栏「注册账号」-> #/register）
+/#/register       -> 内嵌注册页（调 /api/register*）
+/api/register*    -> 注册引擎后端 (127.0.0.1:8012)
+/register/        -> 重定向回内嵌页（不再暴露注册引擎自带控制台）
+```
+
+**为什么不暴露注册引擎自带控制台**：它是 GPTGrok2API 那套界面（品牌与版本号都不同，
+显示为 GPTGrok2API v1.2.1），挂在 chatgpt2api 域名下会造成混淆。其功能已全部内嵌，
+因此统一重定向。
+
+nginx 参考配置：
+
+```nginx
+# 内嵌注册页的后端接口
+location ^~ /api/register {
+    proxy_pass http://127.0.0.1:8012;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+# 旧入口重定向到内嵌页（nginx 中 # 是注释，故用 HTML/JS 跳转）
+location = /register { return 302 /; }
+location ^~ /register/ {
+    default_type text/html;
+    return 200 '<!doctype html><meta charset="utf-8"><title>Redirecting</title><script>location.replace("/" + String.fromCharCode(35) + "/register")</script><noscript><a href="/">enter console</a></noscript>';
+}
+location / {
+    proxy_pass http://127.0.0.1:3000;
+    include /etc/nginx/snippets/proxy-common.conf;
+}
+```

@@ -1,5 +1,24 @@
 # 更新升级说明（gpt.xmxcode.com 部署）
 
+## 升级只需三条命令（推荐）
+
+```bash
+cd /opt/chatgpt2api
+git fetch upstream && git merge upstream/main          # 合并上游新版
+python3 integration/attach.py                          # 一键贴回 iCloud + 注册页
+docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d --build
+```
+
+`attach.py` 是幂等的：已打过补丁就跳过；若上游改动过大导致锚点找不到，会明确指出
+**哪个文件需手工合并**并以非 0 退出（不会静默出错）。详见 `integration/README.md`。
+
+> 注册引擎是**独立仓库**，单独 `git pull` 升级即可；注册逻辑全在后端，
+> 后端升级**无需**重新同步内嵌页。
+
+---
+
+
+
 > **推荐用集成包自动重新贴回**：本项目相对上游的增补（iCloud + 注册页）已整理进
 > `integration/`，上游升级后执行 **`python3 integration/attach.py`** 即可自动补回，
 > 无需手工合并。详见 `integration/README.md`。下面是手工流程，供参考/排障。
