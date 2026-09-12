@@ -811,6 +811,12 @@ const menuItems: NavigationItem[] = [
     capability: 'admin_console',
   },
   {
+    path: '/icloud',
+    label: 'iCloud 邮箱',
+    icon: 'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v.4l8 5 8-5V6H4zm16 12V8.8l-7.4 4.6a1 1 0 0 1-1.2 0L4 8.8V18h16z',
+    capability: 'admin_console',
+  },
+  {
     path: '/logs',
     label: '日志管理',
     icon: 'M4 6h16v2H4V6zm0 5h16v2H4v-2zm0 5h10v2H4v-2z',
@@ -829,12 +835,6 @@ const menuItems: NavigationItem[] = [
     capability: 'admin_console',
   },
   {
-    path: '/icloud',
-    label: 'iCloud 邮箱',
-    icon: 'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 2v.4l8 5 8-5V6H4zm16 12V8.8l-7.4 4.6a1 1 0 0 1-1.2 0L4 8.8V18h16z',
-    capability: 'admin_console',
-  },
-  {
     path: '/settings',
     label: '系统设置',
     icon: 'M4 6h10v2H4V6zm12 0h4v2h-4V6zM4 11h6v2H4v-2zm8 0h8v2h-8v-2zM4 16h10v2H4v-2zm12 0h4v2h-4v-2z',
@@ -849,8 +849,8 @@ const routeTitleMap: Record<string, string> = {
   gallery: '图片管理',
   proxy: '代理管理',
   settings: '系统设置',
-  icloud: 'iCloud 邮箱',
   register: '注册账号',
+  icloud: 'iCloud 邮箱',
   monitor: '实时监控',
   studio: '对话画图',
 }
@@ -1059,6 +1059,7 @@ const routeViewLoaders: Record<string, () => Promise<unknown>> = {
   '/monitor': () => import('@/views/Monitor.vue'),
   '/proxy': () => import('@/views/Proxy.vue'),
   '/register': () => import('@/views/Register.vue'),
+  '/icloud': () => import('@/views/ICloudPrivacyMail.vue'),
   '/settings': () => import('@/views/Settings.vue'),
   '/studio': () => import('@/views/Studio.vue'),
 }

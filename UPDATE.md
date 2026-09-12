@@ -1,5 +1,10 @@
 # 更新升级说明（gpt.xmxcode.com 部署）
 
+> **推荐用集成包自动重新贴回**：本项目相对上游的增补（iCloud + 注册页）已整理进
+> `integration/`，上游升级后执行 **`python3 integration/attach.py`** 即可自动补回，
+> 无需手工合并。详见 `integration/README.md`。下面是手工流程，供参考/排障。
+
+
 本部署由**两个独立 git 仓库**组成，升级时各自独立拉取，**不需要再合并**。
 
 | 目录 | 仓库 | 说明 |
