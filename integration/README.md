@@ -1,0 +1,47 @@
+# integration/ — 本项目相对上游 chatgpt2api 的增补
+
+本目录让「iCloud 邮箱 + 注册引擎页面」这两块增补可以**在上游升级后一键重新贴上**，
+不必手工合并。
+
+## 组成
+
+| 路径 | 作用 |
+|---|---|
+| `assets/` | 增补用到的全部文件快照（注册页、iCloud 页、sidecar 源码等） |
+| `attach.py` | 一键重新贴回增补（幂等，可反复运行） |
+
+## 上游升级后如何操作
+
+```bash
+cd /opt/chatgpt2api
+git fetch upstream
+git merge upstream/main            # 冲突时保留上游版本（我们的改动由 attach.py 补回）
+python3 integration/attach.py      # 重新贴回 iCloud + 注册页
+docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d --build
+```
+
+## attach.py 会做什么
+
+1. 从 `assets/` 恢复全部增补文件（~44 个，纯新增，本不与上游冲突）
+2. 对上游的 5 个文件做**最小补丁**（幂等，已打过就跳过）：
+   - `api/app.py` — 注册 iCloud 路由（2 行）
+   - `web-vue/src/router/routes.ts` — 加 `/register`、`/icloud` 路由
+   - `web-vue/src/layouts/AppShell.vue` — 加两个侧边栏入口 + 标题 + 预加载
+   - `docker-compose.yml` — 加 iCloud sidecar 服务 + 环境变量
+3. 重新生成 lucide 图标集（新页面引用的图标需要登记，否则构建会报
+   `Local Lucide icon set is stale`）
+
+若某文件上游改动过大、锚点找不到，脚本会**明确指出该文件需手工合并**并以非 0 退出。
+
+## 注册引擎（另一个仓库，独立升级）
+
+注册后端在 **另一个仓库** `gptGrok2api-py`，本目录不涉及。它单独升级：
+
+```bash
+cd /opt/chatgpt2api/register-engine
+git pull origin main
+docker compose -f docker-compose.yml -f deploy.local.yml up -d --build
+docker compose -f deploy/docker-compose.captcha-solver.yml -f deploy.captcha.yml up -d --build
+```
+
+本增补只需保证 nginx 把 `/api/register*` 与 `/register/` 指向注册引擎（见仓库 `DEPLOY.md` 第五节）。

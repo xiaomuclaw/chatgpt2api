@@ -61,22 +61,18 @@
             导航
           </p>
           <div class="space-y-1">
-            <component
-              :is="item.external ? 'a' : RouterLink"
+            <RouterLink
               v-for="item in visibleMenuItems"
               :key="item.path"
-              :to="item.external ? undefined : item.path"
-              :href="item.external ? item.path : undefined"
-              :target="item.external ? '_blank' : undefined"
-              :rel="item.external ? 'noopener noreferrer' : undefined"
+              :to="item.path"
               class="shell-nav-item group flex items-center overflow-hidden rounded-lg border border-transparent py-1.5 text-sm font-medium transition-colors"
               :class="navItemClassMap[item.path]"
               :aria-label="item.label"
-              :aria-current="!item.external && isNavActive(item.path) ? 'page' : undefined"
-              :aria-busy="!item.external && isNavPending(item.path) ? 'true' : undefined"
-              @mouseenter="!item.external && prefetchRouteView(item.path)"
-              @focus="!item.external && prefetchRouteView(item.path)"
-              @click="handleNavClick(item)"
+              :aria-current="isNavActive(item.path) ? 'page' : undefined"
+              :aria-busy="isNavPending(item.path) ? 'true' : undefined"
+              @mouseenter="prefetchRouteView(item.path)"
+              @focus="prefetchRouteView(item.path)"
+              @click="handleNavClick(item.path)"
             >
               <Tooltip v-if="isSidebarRail" :text="item.label" placement="right">
                 <span
@@ -98,7 +94,7 @@
                 </svg>
               </span>
               <span class="sidebar-label">{{ item.label }}</span>
-            </component>
+            </RouterLink>
           </div>
         </nav>
 
@@ -781,7 +777,6 @@ type NavigationItem = {
   label: string
   icon: string
   capability: AuthCapability
-  external?: boolean
 }
 
 const menuItems: NavigationItem[] = [
@@ -1469,13 +1464,8 @@ function prefetchRouteView(path: string) {
   })
 }
 
-function handleNavClick(item: { path: string; external?: boolean }) {
-  if (item.external) {
-    window.open(item.path, '_blank', 'noopener')
-    closeSidebar()
-    return
-  }
-  beginRouteNavigation(item.path)
+function handleNavClick(path: string) {
+  beginRouteNavigation(path)
   closeSidebar()
 }
 
