@@ -61,18 +61,22 @@
             导航
           </p>
           <div class="space-y-1">
-            <RouterLink
+            <component
+              :is="item.external ? 'a' : RouterLink"
               v-for="item in visibleMenuItems"
               :key="item.path"
-              :to="item.path"
+              :to="item.external ? undefined : item.path"
+              :href="item.external ? item.path : undefined"
+              :target="item.external ? '_blank' : undefined"
+              :rel="item.external ? 'noopener noreferrer' : undefined"
               class="shell-nav-item group flex items-center overflow-hidden rounded-lg border border-transparent py-1.5 text-sm font-medium transition-colors"
               :class="navItemClassMap[item.path]"
               :aria-label="item.label"
-              :aria-current="isNavActive(item.path) ? 'page' : undefined"
-              :aria-busy="isNavPending(item.path) ? 'true' : undefined"
-              @mouseenter="prefetchRouteView(item.path)"
-              @focus="prefetchRouteView(item.path)"
-              @click="handleNavClick(item.path)"
+              :aria-current="!item.external && isNavActive(item.path) ? 'page' : undefined"
+              :aria-busy="!item.external && isNavPending(item.path) ? 'true' : undefined"
+              @mouseenter="!item.external && prefetchRouteView(item.path)"
+              @focus="!item.external && prefetchRouteView(item.path)"
+              @click="handleNavClick(item)"
             >
               <Tooltip v-if="isSidebarRail" :text="item.label" placement="right">
                 <span
@@ -94,7 +98,7 @@
                 </svg>
               </span>
               <span class="sidebar-label">{{ item.label }}</span>
-            </RouterLink>
+            </component>
           </div>
         </nav>
 
@@ -777,6 +781,7 @@ type NavigationItem = {
   label: string
   icon: string
   capability: AuthCapability
+  external?: boolean
 }
 
 const menuItems: NavigationItem[] = [
@@ -803,6 +808,13 @@ const menuItems: NavigationItem[] = [
     label: '账号管理',
     icon: 'M12 12a3.5 3.5 0 1 0-3.5-3.5A3.5 3.5 0 0 0 12 12zm0 2c-4.1 0-7.5 2.2-7.5 5v1h15v-1c0-2.8-3.4-5-7.5-5z',
     capability: 'admin_console',
+  },
+  {
+    path: '/register/',
+    label: '注册账号',
+    icon: 'M12 2a5 5 0 1 1 0 10A5 5 0 0 1 12 2zm0 12c2.8 0 5.2 1.4 6.3 3.5l-1.7 1c-.8-1.5-2.6-2.5-4.6-2.5s-3.8 1-4.6 2.5l-1.7-1C6.8 15.4 9.2 14 12 14zm7-1v3h3v2h-3v3h-2v-3h-3v-2h3v-3h2z',
+    capability: 'admin_console',
+    external: true,
   },
   {
     path: '/logs',
@@ -1456,8 +1468,13 @@ function prefetchRouteView(path: string) {
   })
 }
 
-function handleNavClick(path: string) {
-  beginRouteNavigation(path)
+function handleNavClick(item: { path: string; external?: boolean }) {
+  if (item.external) {
+    window.open(item.path, '_blank', 'noopener')
+    closeSidebar()
+    return
+  }
+  beginRouteNavigation(item.path)
   closeSidebar()
 }
 

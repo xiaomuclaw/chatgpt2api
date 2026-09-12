@@ -57,3 +57,8 @@ scripts/test_*.py
 scripts/image_upscale/node_modules/
 web/
 .playwright-cli/
+
+# 本机部署产物
+register-engine/
+deploy.local.yml
+*.log
