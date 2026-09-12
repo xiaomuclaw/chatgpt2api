@@ -90,6 +90,28 @@
           />
         </label>
 
+        <label class="register-field">
+          <span class="register-label">任务间隔最小（秒）</span>
+          <Input
+            v-model.number="config.task_interval_min"
+            type="number"
+            min="0"
+            block
+            :disabled="config.enabled"
+          />
+        </label>
+
+        <label class="register-field">
+          <span class="register-label">任务间隔最大（秒）</span>
+          <Input
+            v-model.number="config.task_interval_max"
+            type="number"
+            min="0"
+            block
+            :disabled="config.enabled"
+          />
+        </label>
+
         <label v-if="config.mode !== 'total'" class="register-field">
           <span class="register-label">检查间隔（秒）</span>
           <Input

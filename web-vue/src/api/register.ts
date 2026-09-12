@@ -193,6 +193,8 @@ export type CheckoutTask = {
 export type LegacyRegisterConfig = {
   target: RegisterTarget | string
   register_mode?: 'protocol' | 'browser' | string
+  task_interval_min?: number
+  task_interval_max?: number
   grok: GrokRegisterConfig
   checkout: OpenAICheckoutConfig
   sub2api_sync: OpenAISub2APISyncConfig

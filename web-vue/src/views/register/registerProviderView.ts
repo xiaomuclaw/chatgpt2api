@@ -190,6 +190,8 @@ export const defaultGrokRegisterConfig: GrokRegisterConfig = {
 export const defaultRegisterConfig: LegacyRegisterConfig = {
   target: 'openai',
   register_mode: 'protocol',
+  task_interval_min: 0,
+  task_interval_max: 0,
   grok: { ...defaultGrokRegisterConfig },
   checkout: {
     enabled: true,
@@ -510,6 +512,8 @@ export function normalizeRegisterConfig(raw: LegacyRegisterConfig): LegacyRegist
     target,
     grok: normalizeGrokRegisterConfig(raw.grok),
     register_mode: String(raw.register_mode || 'protocol') === 'browser' ? 'browser' : 'protocol',
+    task_interval_min: Math.max(0, Number(raw.task_interval_min) || 0),
+    task_interval_max: Math.max(0, Number(raw.task_interval_max) || 0),
     mode: target === 'grok' ? 'total' : (raw.mode || defaultRegisterConfig.mode),
     mail,
     checkout,
@@ -718,6 +722,8 @@ export function legacyRegisterPayload(config: LegacyRegisterConfig): Partial<Leg
         .map(sanitizedProviderPayload),
     },
     register_mode: String(config.register_mode || 'protocol') === 'browser' ? 'browser' : 'protocol',
+    task_interval_min: Math.max(0, Number(config.task_interval_min) || 0),
+    task_interval_max: Math.max(0, Number(config.task_interval_max) || 0),
     proxy: String(config.proxy || '').trim(),
     total: Math.max(1, Number(config.total) || 1),
     threads: Math.max(1, Number(config.threads) || 1),
