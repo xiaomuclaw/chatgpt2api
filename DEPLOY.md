@@ -1,57 +1,50 @@
-# ChatGPT2API 部署说明（主程序 + 注册引擎 双服务）
+# 部署说明（ChatGPT2API 主程序 + 注册引擎 + iCloud 邮箱）
 
-> 本文档描述 **chatgpt2api（主程序）+ gptGrok2api-py（注册引擎）** 的联合部署方式。
-> 两个仓库**相互独立**，各自部署为独立服务，通过 Nginx 分流 + 定时同步协作。
+> 本文档描述**完整功能部署**：主控制台、内嵌注册页、iCloud 隐私邮箱。
+> 照本文档执行即可一次性部署完成。
 
-## 给接手部署的 AI / 工程师
+## 给接手部署的 AI / 工程师（先读这段）
 
-两个仓库都是**私有仓库**，克隆需要 GitHub 凭据：
+**需要两个仓库，缺一不可**：
 
-- 主程序（本仓库）：`https://github.com/xiaomuclaw/chatgpt2api`
-- 注册引擎：`https://github.com/xiaomuclaw/gptGrok2api-py`
+| 仓库 | 可见性 | 提供什么 |
+|---|---|---|
+| `https://github.com/xiaomuclaw/chatgpt2api` | **公开** | 主程序：控制台、账号池、图片、**iCloud 邮箱（自包含）**、**注册页前端（内嵌）** |
+| `https://github.com/xiaomuclaw/gptGrok2api-py` | **私有** | **注册后端**：注册机、邮箱池、代理池、captcha-solver |
+
+> ⚠️ 第二个仓库是**私有**的，克隆需要 GitHub 凭据（PAT 或 SSH key）。没有凭据时，主程序可部署（含 iCloud），但**注册功能不可用**。
 
 ```bash
-git clone https://oauth2:<你的PAT>@github.com/xiaomuclaw/chatgpt2api.git /opt/chatgpt2api
-git clone https://oauth2:<你的PAT>@github.com/xiaomuclaw/gptGrok2api-py.git /opt/gptgrok2api-py
+git clone https://oauth2:<PAT>@github.com/xiaomuclaw/chatgpt2api.git /opt/chatgpt2api
+git clone https://oauth2:<PAT>@github.com/xiaomuclaw/gptGrok2api-py.git /opt/chatgpt2api/register-engine
 ```
 
-按第一~七节执行即可。密钥、邮箱凭据、代理池**不在仓库里**，需向负责人索取。
+按第一~八节执行。密钥、邮箱凭据、代理池**不在仓库里**，需向负责人索取。
 
 ---
 
 ## 一、架构总览
 
 ```
-用户
- ├─ https://主域名            → chatgpt2api      (127.0.0.1:8001)
- │                                账号池 / 图片 / 工作台 / /v1 API
- └─ https://注册域名(子域)     → 注册引擎        (127.0.0.1:8010)
-                                  注册控制台 / 邮箱池 / 代理池 / 注册机
-
-后台：cron 每分钟把注册引擎新注册的账号同步进 chatgpt2api
+用户 → https://主域名
+        │
+     Nginx
+        ├─ /register/    → 注册引擎独立控制台   (127.0.0.1:8012)
+        ├─ /api/register*→ 注册引擎后端         (127.0.0.1:8012)  ← 内嵌注册页也走这里
+        └─ 其余全部       → 主程序              (127.0.0.1:3000)
+                              │
+              主程序内置页面：概览/账号/图片/iCloud 邮箱/注册账号(内嵌)
 ```
 
 | 服务 | 仓库 | 端口 | 职责 |
 |---|---|---|---|
-| 主程序 | `chatgpt2api` | 127.0.0.1:**8001** | 账号池、图片/工作台、`/v1/*` API |
-| 注册引擎 | `gptGrok2api-py` | 127.0.0.1:**8010** | 账号注册（协议/指纹浏览器）、邮箱池、代理池 |
-| 验证码旁路 | （py 仓库内） | 127.0.0.1:**8877** | captcha-solver，过 Cloudflare |
-| 清障服务 | 外部镜像 | 容器名 `flaresolverr:8191` | FlareSolverr |
+| 主程序 | `chatgpt2api` | 127.0.0.1:**3000** | 控制台、账号池、图片、`/v1/*` API |
+| **iCloud sidecar** | 同上（**自包含**） | 容器名 `icloud-privacy-mail:8787` | Apple 登录、Hide My Email、收验证码 |
+| 注册引擎 | `gptGrok2api-py` | 127.0.0.1:**8012** | 注册机、邮箱池、代理池 |
+| 注册用 captcha-solver | 同上（仓库内） | 127.0.0.1:**8879** | 浏览器过 Cloudflare |
 
-### 为什么是两个服务
-
-- **chatgpt2api 不含注册功能**（源码中无 register 模块、无邮箱池）。
-- **注册引擎**具备完整注册实现（协议 + 指纹浏览器双模式）。
-- 二者账号格式兼容：注册引擎产出的 `{access_token, refresh_token, id_token, email, ...}` 可直接被 chatgpt2api 的 `POST /api/accounts` 接受。
-
-### 控制台访问说明（重要）
-
-| 功能 | 所在控制台 |
-|---|---|
-| 账号管理、图片、工作台、代理、监控 | **chatgpt2api**（主域名） |
-| **启动注册、邮箱池、注册参数** | **注册引擎**（注册子域） |
-
-两个控制台都是 hash 路由、静态资源用绝对路径 `/assets/`，**无法在同一域名下按路径共存**，因此注册引擎用**独立子域**访问。
+**关键**：注册页**前端**已内嵌进主程序（`web-vue/src/views/Register.vue`），
+但它的**后端**是注册引擎。所以内嵌页面需要注册引擎在跑。
 
 ---
 
@@ -60,176 +53,187 @@ git clone https://oauth2:<你的PAT>@github.com/xiaomuclaw/gptGrok2api-py.git /o
 | 依赖 | 说明 | 必需 |
 |---|---|---|
 | Docker + Compose v2 | ≥24 | 是 |
-| Nginx | 反向代理 | 是 |
-| **FlareSolverr** | 注册过 CF | 注册必需 |
-| **代理池** | 住宅 IP，注册与收信使用 | 注册必需 |
-| **Outlook 邮箱池** | `邮箱----密码----client_id----refresh_token` | 注册必需 |
-| 域名 + 两个子域 + SSL | 主域 + 注册子域 | 是 |
+| Nginx + 域名 + SSL | certbot 可签发 | 是 |
+| FlareSolverr | 过 CF 挑战 | 注册必需 |
+| 代理池 | 住宅 IP（HTTP 代理，每行一个） | 注册必需 |
+| Outlook 邮箱池 | `邮箱----密码----client_id----refresh_token` | 注册必需 |
 
 ---
 
-## 三、部署主程序 chatgpt2api
+## 三、部署主程序（含 iCloud）
 
 ```bash
 cd /opt
-git clone <本仓库URL> chatgpt2api
+git clone <chatgpt2api 地址> chatgpt2api      # 或 clone 到 /opt/chatgpt2api
 cd chatgpt2api
 mkdir -p data
-
-# 1) 创建 .env
-# 2) 创建 config.json（内容 {}）
-# 3) 创建 deploy.local.yml（固定端口）
-# 4) 启动
-docker compose -f docker-compose.yml -f deploy.local.yml up -d
+printf '{}\n' > config.json
 ```
 
 ### `.env`
 
 ```env
 CHATGPT2API_AUTH_KEY=<管理员密钥，长随机串>
-CHATGPT2API_PORT=8001
-CHATGPT2API_BASE_URL=https://主域名
+CHATGPT2API_PORT=3000
+CHATGPT2API_BASE_URL=https://你的域名
 CHATGPT2API_THREAD_TOKENS=120
 TZ=Asia/Shanghai
+# iCloud 隐私邮箱 sidecar
+ICLOUD_PRIVACY_MAIL_BASE_URL=http://icloud-privacy-mail:8787
+ICLOUD_PRIVACY_MAIL_API_KEY=<随机密钥>
+ICLOUD_PRIVACY_MAIL_PUBLIC_BASE_URL=http://127.0.0.1:8788
+ICLOUD_PRIVACY_MAIL_NO_PROXY=127.0.0.1,localhost,icloud-privacy-mail,.apple.com,.icloud.com,.apple.com.cn,.icloud.com.cn
 ```
 
-> 若沿用官方镜像：`CHATGPT2API_IMAGE=ghcr.io/yukkcat/chatgpt2api:latest`
-> 若从本仓库源码构建：注释掉该变量，并在 compose 中改用 `build: .`
-
-### `deploy.local.yml`
+### `deploy.local.yml`（**必须创建**，仓库中不含）
 
 ```yaml
 services:
   app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: chatgpt2api:local
     container_name: chatgpt2api
     ports: !override
-      - "127.0.0.1:8001:80"
+      - "127.0.0.1:3000:80"
     volumes: !override
       - ./data:/app/data
       - ./config.json:/app/config.json
 ```
 
-> ⚠️ 官方 compose 默认端口是 **3000**，若宿主已有服务占用，务必用本文件 + `!override` 改到 8001。
-> ⚠️ 官方 compose 挂载了 `chatgpt2api-runtime:/app` 具名卷，部署到固定目录时建议改为 `!override` 只挂 `data` 和 `config.json`，避免配置被卷覆盖。
+> 官方 compose 默认用官方镜像 + 具名卷挂 `/app`，会把代码盖住。本文件改为**源码构建**并只挂数据，
+> 这样仓库里的 iCloud / 内嵌注册页才生效。`!override` 必须保留。
+
+### 启动
+
+```bash
+docker network create chatgpt2api_default 2>/dev/null || true
+docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d --build
+```
+
+> 不加 `--profile local-icloud` 时 iCloud sidecar 不启动，iCloud 页面显示"模块不可用"。
 
 ---
 
-## 四、部署注册引擎 gptGrok2api-py
+## 四、部署注册引擎
 
 ```bash
-cd /opt
-git clone <注册引擎仓库URL> gptgrok2api-py
-cd gptgrok2api-py
+cd /opt/chatgpt2api
+git clone <gptGrok2api-py 地址> register-engine
+cd register-engine
 mkdir -p data logs
 
-# 1) 创建 .env、deploy.local.yml
-# 2) 创建 data/register.json（见第六节）
-# 3) 启动注册引擎
-docker compose -f docker-compose.yml -f deploy.local.yml up -d --build
-
-# 4) 启动 captcha-solver
-docker compose -f deploy/docker-compose.captcha-solver.yml up -d --build
-
-# 5) 让 captcha-solver 接入注册引擎网络（用容器名互访）
-docker network connect gptgrok2api-py_default chatgpt2api-captcha-solver
+# 复制注册配置（邮箱池 + 代理池 + 注册参数），向负责人索取 data/register.json
+# 放到 register-engine/data/register.json
 ```
 
 ### `.env`
 
 ```env
 CHATGPT2API_AUTH_KEY=<与主程序相同的管理员密钥>
-CHATGPT2API_PORT=8010
-CHATGPT2API_BASE_URL=https://注册子域
+CHATGPT2API_PORT=8012
+CHATGPT2API_BASE_URL=https://你的域名/register
 TZ=Asia/Shanghai
 STORAGE_BACKEND=json
 ```
 
-### `deploy.local.yml`
+### `deploy.local.yml`（**必须创建**）
 
 ```yaml
 services:
   app:
-    container_name: gptgrok2api-py
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        WEB_BASE_PATH: /register/
+        WEB_API_BASE: /register
+    image: register-engine:local
+    container_name: register-engine
     ports: !override
-      - "127.0.0.1:8010:80"
+      - "127.0.0.1:8012:80"
     networks:
       default:
-      grok2api_default:
+      chatgpt2api_default:
         aliases:
-          - gptgrok2api-py
+          - register-engine
 
 networks:
-  grok2api_default:
+  chatgpt2api_default:
     external: true
-    name: grok2api_default
+    name: chatgpt2api_default
 ```
 
-> `grok2api_default` 网络用于让注册引擎访问 FlareSolverr（若你的 FlareSolverr 在别的网络，改为对应网络名）。
+> `WEB_BASE_PATH=/register/` 让控制台静态资源挂在 `/register/` 下，配合 nginx 路径剥离。
+
+### `deploy.captcha.yml`（**必须创建**，注册引擎专用 solver）
+
+```yaml
+services:
+  captcha-solver:
+    container_name: register-captcha-solver
+    ports: !override
+      - "127.0.0.1:8879:8877"
+    networks:
+      default:
+      chatgpt2api_default:
+        aliases:
+          - register-captcha-solver
+
+networks:
+  chatgpt2api_default:
+    external: true
+    name: chatgpt2api_default
+```
+
+### 启动
+
+```bash
+docker compose -f docker-compose.yml -f deploy.local.yml up -d --build
+docker compose -f deploy/docker-compose.captcha-solver.yml -f deploy.captcha.yml up -d --build
+```
 
 ---
 
 ## 五、Nginx 配置
 
-需要**两个 server 块**：主域名 → 主程序；注册子域 → 注册引擎。
-
-### 主域名（chatgpt2api）
-
 ```nginx
 server {
-    server_name 主域名;
+    server_name 你的域名;
     client_max_body_size 200m;
 
-    # 注册接口也走注册引擎（便于从任意控制台调用）
+    # 内嵌注册页的后端接口 -> 注册引擎
     location ^~ /api/register {
-        proxy_pass http://127.0.0.1:8010;
+        proxy_pass http://127.0.0.1:8012;
         include /etc/nginx/snippets/proxy-common.conf;
     }
 
+    # 注册引擎独立控制台（路径剥离）
+    location = /register { return 301 /register/; }
+    location ^~ /register/ {
+        proxy_pass http://127.0.0.1:8012/;
+        include /etc/nginx/snippets/proxy-common.conf;
+    }
+
+    # 其余 -> 主程序
     location / {
-        proxy_pass http://127.0.0.1:8001;
+        proxy_pass http://127.0.0.1:3000;
         include /etc/nginx/snippets/proxy-common.conf;
     }
 
     listen [::]:443 ssl;
     listen 443 ssl;
-    ssl_certificate     /etc/letsencrypt/live/主域名/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/主域名/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/你的域名/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/你的域名/privkey.pem;
     include /etc/letsencrypt/options-ssl-nginx.conf;
     ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
 }
 server {
-    if ($host = 主域名) { return 301 https://$host$request_uri; }
+    if ($host = 你的域名) { return 301 https://$host$request_uri; }
     listen 80;
     listen [::]:80;
-    server_name 主域名;
-    return 404;
-}
-```
-
-### 注册子域（注册引擎控制台）
-
-```nginx
-server {
-    server_name 注册子域;
-    client_max_body_size 200m;
-
-    location / {
-        proxy_pass http://127.0.0.1:8010;
-        include /etc/nginx/snippets/proxy-common.conf;
-    }
-
-    listen [::]:443 ssl;
-    listen 443 ssl;
-    ssl_certificate     /etc/letsencrypt/live/注册子域/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/注册子域/privkey.pem;
-    include /etc/letsencrypt/options-ssl-nginx.conf;
-    ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
-}
-server {
-    if ($host = 注册子域) { return 301 https://$host$request_uri; }
-    listen 80;
-    listen [::]:80;
-    server_name 注册子域;
+    server_name 你的域名;
     return 404;
 }
 ```
@@ -250,22 +254,22 @@ proxy_buffering off;
 proxy_request_buffering off;
 ```
 
-签发证书：`certbot --nginx -d 主域名 -d 注册子域 --redirect`
+签发证书：`certbot --nginx -d 你的域名 --redirect`
 
 ---
 
-## 六、注册配置 `data/register.json`（注册引擎侧）
+## 六、注册配置 `register-engine/data/register.json`
 
-通过注册引擎控制台（注册子域）保存。关键字段：
+关键字段（完整格式见 gptGrok2api-py 仓库的 DEPLOY.md）：
 
 ```json
 {
   "target": "openai",
   "register_mode": "browser",
   "threads": 1,
-  "task_interval_min": 15,
-  "task_interval_max": 40,
-  "proxy": "http://u:p@host:port\nhttp://u:p@host2:port2",
+  "task_interval_min": 30,
+  "task_interval_max": 60,
+  "proxy": "http://u:p@host:port\n...",
   "mail": {
     "providers": [{
       "id": "outlook-pool",
@@ -282,28 +286,24 @@ proxy_request_buffering off;
     }],
     "api_use_register_proxy": true
   },
-  "browser": {
-    "api_base": "http://chatgpt2api-captcha-solver:8877",
-    "request_timeout": 30,
-    "captcha_timeout": 180
-  }
+  "browser": { "api_base": "http://register-captcha-solver:8877" }
 }
 ```
 
-要点：
-- `register_mode`：`browser`（指纹浏览器，存活率高，推荐）或 `protocol`（快，但账号易被吊销）
-- `threads` 浏览器模式**必须为 1**（CloakBrowser 免费版单会话；代码已自动钳制）
-- `browser.api_base` 必须用**容器名**，不能用 `127.0.0.1`
-- Outlook 别名：单邮箱上游上限 **2 个账号**（原始 + 1 别名），故 `alias_per_email: 1`
-- `task_interval_min/max`：每个任务之间的随机延迟（秒），降低上游风控
+**要点**：
+- `register_mode`：`browser`（指纹浏览器，存活率高）或 `protocol`（快但易被吊销）
+- `threads` 浏览器模式**必须为 1**（代码已自动钳制）
+- `browser.api_base` 用**容器名** `register-captcha-solver:8877`
+- Outlook 单邮箱上游上限 **2 个账号**（原始 + 1 别名），故 `alias_per_email: 1`
+- `task_interval_min/max`：任务间随机延迟（秒）。**建议 30-60 秒**，太密会触发上游限流
 
 ---
 
-## 七、账号同步（注册引擎 → chatgpt2api）
+## 七、账号同步（注册引擎 → 主程序）
 
-chatgpt2api 按凭据去重，但注册引擎独立刷新 token，直接全量导入会**重复**。因此先读主程序已有账号身份，只导入缺失的。
+注册引擎产出账号后，需同步进主程序才能被 `/v1` 使用。
 
-### `/opt/sync_to_chatgpt2api.py`
+### `/opt/chatgpt2api/sync_register_to_c2a.py`
 
 ```python
 #!/usr/bin/env python3
@@ -311,8 +311,8 @@ chatgpt2api 按凭据去重，但注册引擎独立刷新 token，直接全量�
 import json, os, sys, urllib.error, urllib.request
 
 KEY = os.environ.get("C2A_ADMIN_KEY", "")
-BASE = os.environ.get("C2A_BASE", "http://127.0.0.1:8001").rstrip("/")
-SRC = os.environ.get("C2A_SRC", "/opt/gptgrok2api-py/data/accounts.json")
+BASE = os.environ.get("C2A_BASE", "http://127.0.0.1:3000").rstrip("/")
+SRC = os.environ.get("C2A_SRC", "/opt/chatgpt2api/register-engine/data/accounts.json")
 
 def headers():
     return {"Authorization": "Bearer " + KEY, "Content-Type": "application/json"}
@@ -345,7 +345,7 @@ def main():
     try:
         have = existing()
     except Exception as exc:
-        print("read chatgpt2api accounts failed: %s" % exc, file=sys.stderr); return 1
+        print("read main accounts failed: %s" % exc, file=sys.stderr); return 1
     missing = [a for a in accounts if identity(a) not in have]
     if not missing:
         return 0
@@ -367,19 +367,16 @@ if __name__ == "__main__":
     raise SystemExit(main())
 ```
 
-### `/opt/sync_to_chatgpt2api.sh`
-
-```sh
-#!/bin/sh
-C2A_ADMIN_KEY=<管理员密钥> exec python3 /opt/sync_to_chatgpt2api.py
-```
-
-### crontab（每分钟）
+### 安装 cron（每分钟同步）
 
 ```bash
-chmod +x /opt/sync_to_chatgpt2api.py /opt/sync_to_chatgpt2api.sh
-( crontab -l 2>/dev/null | grep -v sync_to_chatgpt2api ; \
-  echo "* * * * * /opt/sync_to_chatgpt2api.sh >> /var/log/c2a_sync.log 2>&1" ) | crontab -
+cat > /opt/chatgpt2api/sync.sh <<'SH'
+#!/bin/sh
+C2A_ADMIN_KEY=<管理员密钥> exec python3 /opt/chatgpt2api/sync_register_to_c2a.py
+SH
+chmod +x /opt/chatgpt2api/sync.sh
+( crontab -l 2>/dev/null | grep -v sync_register_to_c2a ; \
+  echo "* * * * * /opt/chatgpt2api/sync.sh >> /var/log/c2a_sync.log 2>&1" ) | crontab -
 ```
 
 ---
@@ -389,93 +386,76 @@ chmod +x /opt/sync_to_chatgpt2api.py /opt/sync_to_chatgpt2api.sh
 ```bash
 K=<管理员密钥>
 
-# 1. 主程序
-curl -s -o /dev/null -w "main:%{http_code}\n" http://127.0.0.1:8001/
+# 1. 主控制台
+curl -s -o /dev/null -w "main:%{http_code}\n" https://你的域名/
 
-# 2. 注册引擎（返回注册配置，非 503）
-curl -s -H "Authorization: Bearer $K" http://127.0.0.1:8010/api/register | head -c 200
+# 2. 内嵌注册页（前端）
+curl -s -o /dev/null -w "register-page:%{http_code}\n" "https://你的域名/#/register"
 
-# 3. 注册引擎控制台
-curl -s -o /dev/null -w "console:%{http_code}\n" http://127.0.0.1:8010/
+# 3. 注册后端（返回注册配置，不是 503）
+curl -s -H "Authorization: Bearer $K" https://你的域名/api/register | head -c 200
 
-# 4. 域名 API（主程序）
+# 4. 注册引擎独立控制台
+curl -s -o /dev/null -w "register-console:%{http_code}\n" https://你的域名/register/
+
+# 5. iCloud 代理
+curl -s -H "Authorization: Bearer $K" https://你的域名/api/icloud/bridge-status
+
+# 6. 账号同步
+C2A_ADMIN_KEY=$K python3 /opt/chatgpt2api/sync_register_to_c2a.py
+
+# 7. API 调用
 curl -s -X POST -H "Authorization: Bearer $K" -H "Content-Type: application/json" \
   -d '{"model":"gpt-5","messages":[{"role":"user","content":"hi"}]}' \
-  https://主域名/v1/chat/completions
-
-# 5. 同步
-C2A_ADMIN_KEY=$K python3 /opt/sync_to_chatgpt2api.py
-curl -s -H "Authorization: Bearer $K" "http://127.0.0.1:8001/api/accounts?page_size=500" | head -c 120
+  https://你的域名/v1/chat/completions
 ```
 
 ---
-
-## 八·五、iCloud 隐私邮箱（可选功能）
-
-主程序内置「iCloud 邮箱」页面（侧边栏可见），用于集中管理 Apple 登录态、创建 Hide My Email 隐私邮箱、接收验证码邮件。
-
-它是一个**独立 sidecar 服务**（Go，容器名 `icloud-privacy-mail`，端口 8787），主程序通过内部代理转发管理请求。
-
-### 启用
-
-```bash
-# 在 compose 中启用 local-icloud profile
-docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d
-```
-
-`.env` 补充：
-
-```env
-ICLOUD_PRIVACY_MAIL_BASE_URL=http://icloud-privacy-mail:8787
-ICLOUD_PRIVACY_MAIL_API_KEY=<随机密钥>
-ICLOUD_PRIVACY_MAIL_NO_PROXY=127.0.0.1,localhost,icloud-privacy-mail,.apple.com,.icloud.com
-```
-
-> 不加 `--profile local-icloud` 时 sidecar 不启动，iCloud 页面会显示"模块不可用"，其余功能不受影响。
-
-### 访问路径
-
-| 路径 | 说明 |
-|---|---|
-| 控制台 `/#/icloud` | iCloud 邮箱管理页（需管理员密钥登录） |
-| `GET /api/icloud/bridge-status` | sidecar 连通性 |
-| `/api/icloud/*` | 转发到 sidecar 的 `/api/*` |
-
-### 数据位置
-
-`./data/icloud-privacy-mail/`（Apple 登录态、隐私邮箱、验证码邮件均存于此，**迁移时需一并拷贝**）。
 
 ## 九、常见问题
 
 | 现象 | 原因 | 处理 |
 |---|---|---|
-| 注册报 503 `executor is not configured` | 误用主程序注册 | 注册必须用注册引擎（8010） |
-| 注册引擎控制台打不开 | 未暴露访问入口 | 用子域反代到 8010 |
-| 主程序账号池重复 | 全量导入而非按身份比对 | 用第七节的同步脚本 |
-| `browser.api_base` 连不上 | 用了 `127.0.0.1` | 改容器名 `chatgpt2api-captcha-solver:8877` |
-| 浏览器模式注册失败/并发错 | CloakBrowser 单会话 | `threads=1`（代码已自动钳制） |
-| 收不到验证码 | 上游拒发 | 代码自动换邮箱重试；检查邮箱 token |
-| 注册后账号 401 | 账号被上游吊销 | 改用 `register_mode: browser` |
-| 端口冲突 | 官方默认 3000 | `deploy.local.yml` + `!override` 改端口 |
+| iCloud 页显示"模块不可用" | sidecar 未启动 | 启动命令加 `--profile local-icloud` |
+| 内嵌注册页空白/报错 | 注册引擎未跑 | 部署并启动 register-engine（8012） |
+| 注册报 503 `executor is not configured` | 后端指向了主程序 | 确认 nginx `/api/register` 转发到 8012 |
+| 注册页样式错乱 | 静态资源 404 | 确认注册引擎用 `WEB_BASE_PATH=/register/` 构建 |
+| 主程序页面无「注册账号」 | 用了官方镜像 | 用 `deploy.local.yml` 源码构建 |
+| 收不到验证码 | 上游限流（邮箱本身可读） | 拉长 `task_interval`；代码会自动换邮箱重试 |
+| 注册后账号 401 | 账号被吊销 | 改用 `register_mode: browser` |
+| 账号不进主程序 | 同步未跑 | 检查 cron 与 `sync_register_to_c2a.py` |
 
 ---
 
-## 十、两个仓库的分工与维护
+## 十、更新升级
 
-| 仓库 | 改动内容 |
-|---|---|
-| **chatgpt2api** | 无需改动（直接用官方镜像或本仓库源码构建） |
-| **gptGrok2api-py** | 含注册相关二次开发补丁（见其 `DEPLOY.md` 第十一节）：浏览器注册、代理/取码重试、邮箱切换、任务间隔 |
-
-**升级注意**：注册引擎的补丁在 `services/register/`、`services/openai_browser_*.py`、`captcha-solver/openai_browser/`；升级上游时需保留。
-
-### 数据迁移
+见同仓库 **`UPDATE.md`**。要点：
 
 ```bash
-# 源服务器
-tar czf c2a-data.tgz /opt/chatgpt2api/data /opt/chatgpt2api/config.json \
-                    /opt/gptgrok2api-py/data
-# 目标服务器解包到对应目录
+# 主程序
+cd /opt/chatgpt2api && git pull origin main
+docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d --build
+
+# 注册引擎
+cd /opt/chatgpt2api/register-engine && git pull origin main
+docker compose -f docker-compose.yml -f deploy.local.yml up -d --build
+docker compose -f deploy/docker-compose.captcha-solver.yml -f deploy.captcha.yml up -d --build
 ```
 
-包含：主程序账号库（`data/chatgpt2api.db`）、注册引擎账号池、邮箱池凭据、代理池、注册配置。
+`data/`、`config.json`、`deploy.local.yml`、`register-engine/` 均在 `.gitignore`，pull 不会覆盖。
+
+---
+
+## 十一、数据迁移
+
+`data/` 不在 git 中，迁移时打包拷贝：
+
+```bash
+tar czf gpt-data.tgz \
+    /opt/chatgpt2api/data \
+    /opt/chatgpt2api/config.json \
+    /opt/chatgpt2api/register-engine/data
+```
+
+含：主程序账号库（`data/chatgpt2api.db`）、注册引擎账号池、邮箱池凭据、代理池、注册配置、
+iCloud 登录态（`data/icloud-privacy-mail/`）。
