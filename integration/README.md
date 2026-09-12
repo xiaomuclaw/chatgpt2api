@@ -45,3 +45,31 @@ docker compose -f deploy/docker-compose.captcha-solver.yml -f deploy.captcha.yml
 ```
 
 本增补只需保证 nginx 把 `/api/register*` 与 `/register/` 指向注册引擎（见仓库 `DEPLOY.md` 第五节）。
+
+## 注册引擎前端更新后如何同步内嵌页
+
+注册**逻辑**在后端，后端更新无需同步前端。只有当注册引擎的**前端页面**变了
+（新增字段/按钮），又希望 chatgpt2api 里内嵌的页面跟着变时：
+
+```bash
+# 参数为注册引擎目录（默认 ./register-engine）
+bash integration/sync-from-engine.sh
+python3 integration/attach.py
+docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d --build
+```
+
+`sync-from-engine.sh` 会做两件事：
+1. 从注册引擎复制 16 个注册页前端文件到 `integration/assets/`
+2. 把其中的 `@/api/proxy` 改写成 `@/api/proxyRegister`
+
+> 第 2 步很关键：chatgpt2api 自己的 `api/proxy.ts` 用的是另一套代理引用模型
+> （`{mode,group_id,url}`），所以内嵌页必须改用本仓库提供的兼容模块
+> `api/proxyRegister.ts`。不改写会构建失败。
+
+## 目录内容
+
+| 路径 | 说明 |
+|---|---|
+| `integration/assets/` | 增补文件快照（43 个） |
+| `integration/attach.py` | 一键贴回增补（幂等） |
+| `integration/sync-from-engine.sh` | 从注册引擎刷新前端快照 |
