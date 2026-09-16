@@ -148,6 +148,32 @@
               <Button size="xs" variant="outline" title="下一页" :disabled="mailboxPage >= mailboxTotalPages" @click="changeMailboxPage(1)"><Icon icon="lucide:chevron-right" class="h-3.5 w-3.5" /></Button>
             </div>
           </div>
+          <div class="mb-4 flex flex-wrap items-start justify-between gap-3 rounded-lg border border-border bg-muted/20 px-3 py-3">
+            <div class="min-w-0 flex-1 space-y-1">
+              <p class="text-xs font-medium text-foreground">对外接口（第三方项目接入）</p>
+              <p class="break-all font-mono text-xs text-muted-foreground">{{ apiAccessBase || '未配置对外地址（需设置 ICLOUD_PRIVACY_MAIL_PUBLIC_BASE_URL）' }}</p>
+              <div class="flex flex-wrap items-center gap-1.5 text-xs">
+                <span class="text-muted-foreground">API Key</span>
+                <span class="break-all font-mono text-foreground">{{ apiAccessKey ? (apiKeyVisible ? apiAccessKey : maskApiKey(apiAccessKey)) : '未配置（需设置 ICLOUD_PRIVACY_MAIL_API_KEY）' }}</span>
+              </div>
+              <p class="text-xs leading-5 text-muted-foreground">
+                拉取全部别名邮箱：<code class="rounded bg-background px-1 py-0.5 font-mono">GET {{ apiAccessBase }}/api/v1/mailboxes</code>；
+                按需领取：<code class="rounded bg-background px-1 py-0.5 font-mono">POST {{ apiAccessBase }}/api/v1/mailboxes/claim</code>。
+                两个接口都要带请求头 <code class="rounded bg-background px-1 py-0.5 font-mono">Authorization: Bearer &lt;API Key&gt;</code>。
+              </p>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <Button size="xs" variant="outline" :disabled="!apiAccessKey" @click="apiKeyVisible = !apiKeyVisible">
+                <Icon :icon="apiKeyVisible ? 'lucide:eye-off' : 'lucide:eye'" class="h-3.5 w-3.5" />{{ apiKeyVisible ? '隐藏' : '显示' }}
+              </Button>
+              <Button size="xs" variant="outline" :disabled="!apiAccessKey" @click="copyApiKey">
+                <Icon icon="lucide:copy" class="h-3.5 w-3.5" />复制 Key
+              </Button>
+              <Button size="xs" variant="outline" :disabled="!apiAccessBase || !apiAccessKey" @click="copyApiAccess">
+                <Icon icon="lucide:clipboard" class="h-3.5 w-3.5" />复制接口信息
+              </Button>
+            </div>
+          </div>
           <div v-if="syncFailures.length" class="mb-4 rounded-lg border border-amber-300/70 bg-amber-50/70 px-3 py-3 dark:border-amber-800/60 dark:bg-amber-950/20">
             <p class="text-xs font-semibold text-amber-900 dark:text-amber-200">部分 Apple 账号同步失败</p>
             <div class="mt-2 space-y-2">
@@ -211,7 +237,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Icon } from '@iconify/vue'
 import { Button, Input } from 'nanocat-ui'
-import { icloudApi, type ICloudMailbox, type ICloudMailboxSyncResult, type ICloudMessage, type ICloudScheduler, type ICloudSession } from '@/api/icloud'
+import { icloudApi, type ICloudMailbox, type ICloudMailboxSyncResult, type ICloudMessage, type ICloudScheduler, type ICloudSession, type ICloudStatus } from '@/api/icloud'
 import { useListLayoutPreference } from '@/composables/useListLayoutPreference'
 import FormSection from '@/components/ai/FormSection.vue'
 import MetaChip from '@/components/ai/MetaChip.vue'
@@ -234,6 +260,10 @@ const expandedMailboxId = ref('')
 const pageError = ref('')
 const notice = ref('')
 const bridge = ref<{ enabled?: boolean; reachable?: boolean; base_url?: string; status_code?: number } | null>(null)
+// 对外接口信息：供第三方项目接入使用，来自 sidecar 的 /api/status（仅管理员可见）
+const apiAccessBase = ref('')
+const apiAccessKey = ref('')
+const apiKeyVisible = ref(false)
 const appleForm = reactive({ channel: 'apple' as 'apple' | 'icloud', two_factor_method: 'trusted_device', apple_id: '', password: '', code: '', pending_id: '' })
 const applePending = ref<{ message?: string; expires_at?: string } | null>(null)
 const imapForm = reactive({ account_id: '', email: '', app_password: '' })
@@ -342,6 +372,36 @@ async function copyText(value: string, successMessage: string) {
   }
 }
 
+function maskApiKey(value: string) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  if (text.length <= 12) return '••••••••'
+  return `${text.slice(0, 6)}••••••••${text.slice(-4)}`
+}
+
+function copyApiKey() {
+  return copyText(apiAccessKey.value, 'API Key 已复制')
+}
+
+function copyApiAccess() {
+  const base = apiAccessBase.value
+  const key = apiAccessKey.value
+  const lines = [
+    `接口地址: ${base}`,
+    `API Key: ${key}`,
+    '',
+    `拉取全部别名邮箱:`,
+    `curl -H "Authorization: Bearer ${key}" "${base}/api/v1/mailboxes"`,
+    '',
+    `按需领取一个可用邮箱:`,
+    `curl -X POST -H "Authorization: Bearer ${key}" -H "Content-Type: application/json" -d '{"project":"openai","purpose":"register","count":1}' "${base}/api/v1/mailboxes/claim"`,
+    '',
+    `查询指定邮箱:`,
+    `curl -X POST -H "Authorization: Bearer ${key}" -H "Content-Type: application/json" -d '{"emails":["<别名邮箱>"]}' "${base}/api/v1/mailboxes/lookup"`,
+  ]
+  return copyText(lines.join('\n'), '接口信息已复制')
+}
+
 function showMailboxApi(mailbox: ICloudMailbox) {
   notice.value = mailbox.api_url || '该邮箱没有可用的 API 地址'
 }
@@ -441,6 +501,17 @@ async function refreshAll() {
   syncFailures.value = []
   try {
     bridge.value = await icloudApi.bridgeStatus()
+    try {
+      const statusPayload = (await icloudApi.status()) as ICloudStatus & {
+        api_key?: string
+        public_base_url?: string
+      }
+      apiAccessBase.value = String(statusPayload?.public_base_url || '').trim()
+      apiAccessKey.value = String(statusPayload?.api_key || '').trim()
+    } catch {
+      apiAccessBase.value = ''
+      apiAccessKey.value = ''
+    }
     if (bridge.value.reachable) {
       try {
         await icloudApi.syncExistingClaims()

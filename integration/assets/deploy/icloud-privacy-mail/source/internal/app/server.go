@@ -359,6 +359,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/mailboxes/claim", s.handleClaimMailbox)
 	s.mux.HandleFunc("POST /api/v1/mailboxes/claim-status", s.handleClaimMailboxStatus)
 	s.mux.HandleFunc("POST /api/v1/mailboxes/lookup", s.handleLookupMailboxes)
+	s.mux.HandleFunc("GET /api/v1/mailboxes", s.handleListMailboxesAPI)
 	s.mux.HandleFunc("GET /api/runtime/export", s.handleExportRuntimeData)
 	s.mux.HandleFunc("GET /api/runtime/export-mailbox-apis", s.handleExportMailboxAPIs)
 	s.mux.HandleFunc("GET /api/runtime/export-mailbox-emails", s.handleExportMailboxEmails)
@@ -591,7 +592,7 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		currentUser = publicUserFromUser(user)
 		currentUser.IsAdmin = session.IsAdmin || user.IsAdmin
 	}
-	writeJSON(w, http.StatusOK, map[string]any{
+	payload := map[string]any{
 		"success":            true,
 		"service":            "icloud-privacy-mail",
 		"api_key_configured": strings.TrimSpace(s.cfg.APIKey) != "",
@@ -605,7 +606,13 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"icloud_session":     s.publicSessionForRequest(r),
 		"icloud_sessions":    s.publicSessionsForRequest(r),
 		"version":            currentVersionInfo(),
-	})
+	}
+	// 接入信息只回给管理员或内部调用，避免泄露给普通面板用户。
+	if s.isAdminRequest(r) || isInternalICloudRequest(r) {
+		payload["api_key"] = strings.TrimSpace(s.cfg.APIKey)
+		payload["public_base_url"] = strings.TrimSpace(s.cfg.PublicBaseURL)
+	}
+	writeJSON(w, http.StatusOK, payload)
 }
 
 func (s *Server) handleManageData(w http.ResponseWriter, r *http.Request) {
@@ -725,6 +732,105 @@ func (s *Server) handleClaimMailboxStatus(w http.ResponseWriter, r *http.Request
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "updated": updated, "missing": missing})
+}
+
+// handleListMailboxesAPI 供外部项目用全局 API Key 拉取全部别名邮箱。
+//
+// 与面板的 /api/mailboxes 不同：这里不做 owner 隔离，返回全量，
+// 便于第三方项目自行同步邮箱清单。可用参数：
+//   search / q      按邮箱或标签过滤
+//   status          available / used / disabled
+//   claimed         true / false（是否有任一平台已领取）
+//   project         openai / grok（只看该项目还可用的）
+//   limit           最多返回条数（默认全部）
+func (s *Server) handleListMailboxesAPI(w http.ResponseWriter, r *http.Request) {
+	if !s.authorizedGlobalAPI(r) {
+		writeError(w, http.StatusUnauthorized, errCode("global_api_key_required", "需要全局 API Key", false))
+		return
+	}
+	state := s.store.Snapshot()
+	accountsByID := mailboxAccountMap(state.Accounts)
+	values := r.URL.Query()
+
+	base := state.Mailboxes
+	if project := strings.TrimSpace(values.Get("project")); project != "" {
+		kept := make([]Mailbox, 0, len(base))
+		for _, mailbox := range base {
+			if mailboxAvailableForClaim(mailbox, project) {
+				kept = append(kept, mailbox)
+			}
+		}
+		base = kept
+	}
+	if raw := strings.TrimSpace(values.Get("claimed")); raw != "" {
+		want := strings.EqualFold(raw, "true") || raw == "1"
+		kept := make([]Mailbox, 0, len(base))
+		for _, mailbox := range base {
+			claimed := mailbox.OpenAIClaimed || mailbox.GrokClaimed
+			if claimed == want {
+				kept = append(kept, mailbox)
+			}
+		}
+		base = kept
+	}
+	filtered := filterMailboxesForList(base, accountsByID, values)
+	sortMailboxesForList(filtered, accountsByID)
+
+	limit := 0
+	if raw := strings.TrimSpace(values.Get("limit")); raw != "" {
+		if n, convErr := strconv.Atoi(raw); convErr == nil && n > 0 {
+			limit = n
+		}
+	}
+	if limit > 0 && len(filtered) > limit {
+		filtered = filtered[:limit]
+	}
+
+	out := make([]publicMailbox, 0, len(filtered))
+	for _, mailbox := range filtered {
+		out = append(out, s.publicMailbox(r, mailbox))
+	}
+
+	availableOpenAI, availableGrok := 0, 0
+	openaiClaimed, grokClaimed := 0, 0
+	for _, mailbox := range state.Mailboxes {
+		if mailbox.OpenAIClaimed {
+			openaiClaimed++
+		}
+		if mailbox.GrokClaimed {
+			grokClaimed++
+		}
+		if mailboxAvailableForClaim(mailbox, "openai") {
+			availableOpenAI++
+		}
+		if mailboxAvailableForClaim(mailbox, "grok") {
+			availableGrok++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":   true,
+		"mailboxes": out,
+		"total":     len(state.Mailboxes),
+		"returned":  len(out),
+		"available": map[string]int{"openai": availableOpenAI, "grok": availableGrok},
+		"claimed":   map[string]int{"openai": openaiClaimed, "grok": grokClaimed},
+	})
+}
+
+// mailboxAvailableForClaim 与 store.ClaimAvailableMailbox 的判定保持一致，
+// 保证「列表里显示可用」和「真能领到」是同一套标准。
+func mailboxAvailableForClaim(mailbox Mailbox, project string) bool {
+	if !mailbox.APIActive || !mailbox.ICloudActive {
+		return false
+	}
+	switch normalizeMailboxClaimProject(project) {
+	case "openai":
+		return !mailbox.OpenAIClaimed && (mailbox.Status == StatusAvailable || mailbox.GrokClaimed)
+	case "grok":
+		return !mailbox.GrokClaimed && (mailbox.Status == StatusAvailable || mailbox.OpenAIClaimed)
+	default:
+		return mailbox.Status == StatusAvailable && !mailbox.OpenAIClaimed && !mailbox.GrokClaimed
+	}
 }
 
 func (s *Server) handleLookupMailboxes(w http.ResponseWriter, r *http.Request) {
@@ -4249,6 +4355,9 @@ func (s *Server) requiresAdmin(r *http.Request) bool {
 		return false
 	}
 	if r.Method == http.MethodPost && r.URL.Path == "/api/v1/mailboxes/lookup" {
+		return false
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/api/v1/mailboxes" {
 		return false
 	}
 	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v1/mailboxes/") && strings.HasSuffix(r.URL.Path, "/code") {

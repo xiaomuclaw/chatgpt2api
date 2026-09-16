@@ -281,3 +281,70 @@ nginx 在 `gpt.xmxcode.com` 下加了 `^~ /icloud-api/`：**只放行 `/api/v1/`
 - 地址里的 `key` 就是这个邮箱的 API Key，拿到就能读该邮箱的邮件。
   **不要把这个地址贴到公开的地方**；需要作废时在 iCloud 页重建/停用该邮箱。
 - Cloudflare 会替换 5xx 响应体，所以这里同样只应出现 4xx 业务错误。
+
+---
+
+## 对外开放接口一览（第三方项目接入）
+
+管理页面「iCloud 邮箱 → 隐私邮箱与取件」里有一块**对外接口**，直接显示接口地址
+与 API Key，可一键复制（默认打码，点「显示」看明文）。给它一个 Key，对方即可
+自行同步邮箱清单、领取与取码，不需要你手工转交。
+
+接口前缀：`https://gpt.xmxcode.com/icloud-api`
+
+鉴权（任选其一，放请求头）：
+
+```
+Authorization: Bearer <API Key>
+X-API-Key: <API Key>
+```
+
+| 用途 | 方法 路径 | 说明 |
+|---|---|---|
+| 拉取全部别名邮箱 | `GET /api/v1/mailboxes` | 返回全量清单 + 可用/已用统计 |
+| 按需领取一个可用邮箱 | `POST /api/v1/mailboxes/claim` | 载荷 `{"project":"openai","purpose":"register","count":1}` |
+| 取验证码 | `GET <邮箱的 api_url>` | 地址在清单里带，可直接用；也可用全局 Key 替代其中的 key |
+| 更新领取标记 | `POST /api/v1/mailboxes/claim-status` | 载荷 `{"project":"openai","emails":["..."],"claimed":true}` |
+| 精确查询若干邮箱 | `POST /api/v1/mailboxes/lookup` | 载荷 `{"emails":["..."]}`，1-500 个 |
+
+`GET /api/v1/mailboxes` 支持的过滤参数：
+
+| 参数 | 取值 | 说明 |
+|---|---|---|
+| `search` / `q` | 关键字 | 按邮箱或标签模糊匹配 |
+| `status` | `available` / `used` / `disabled` | 按状态 |
+| `claimed` | `true` / `false` | 是否已被任一平台领取 |
+| `project` | `openai` / `grok` | 只看该项目**当前还能用**的 |
+| `limit` | 正整数 | 最多返回条数（默认全部） |
+
+返回体示例：
+
+```json
+{
+  "success": true,
+  "total": 15,
+  "returned": 15,
+  "available": { "openai": 1, "grok": 15 },
+  "claimed":   { "openai": 14, "grok": 0 },
+  "mailboxes": [
+    {
+      "id": "mbx_000003",
+      "email": "xxx@icloud.com",
+      "label": "register-auto",
+      "status": "available",
+      "api_url": "https://gpt.xmxcode.com/icloud-api/api/v1/mailboxes/xxx@icloud.com/code?key=...",
+      "api_active": true, "icloud_active": true,
+      "openai_claimed": false, "grok_claimed": false,
+      "receive_count": 4,
+      "account_apple_id": "主号@icloud.com",
+      "created_at": "...", "updated_at": "..."
+    }
+  ]
+}
+```
+
+`available` 的判定与 `claim` 完全一致（`mailboxAvailableForClaim`），
+所以「清单里显示可用」就等于「真的能领到」。
+
+> 权限说明：这把 Key 是**全局**的——能拉全量清单、能领任意邮箱、能读所有邮箱的
+> 验证码、能改领取标记。只发给可信项目。要按项目隔离权限需要另加机制。

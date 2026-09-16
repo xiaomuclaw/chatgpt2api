@@ -151,6 +151,8 @@ export type ICloudScheduler = {
 export type ICloudStatus = {
   success?: boolean
   is_admin?: boolean
+  api_key?: string
+  public_base_url?: string
   accounts?: ICloudAccount[]
   mailboxes?: ICloudMailbox[]
   messages?: number
