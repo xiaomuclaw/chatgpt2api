@@ -253,14 +253,31 @@ http://127.0.0.1:8788/api/v1/mailboxes/<别名邮箱>/code?key=<该邮箱的API 
 
 改动后重建：`docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d icloud-privacy-mail`
 
+### 公网地址（已开放）
+
+外部项目直接用页面复制出来的地址即可，形如：
+
+```
+https://gpt.xmxcode.com/icloud-api/api/v1/mailboxes/<别名邮箱>/code?key=<该邮箱的API Key>
+```
+
+nginx 在 `gpt.xmxcode.com` 下加了 `^~ /icloud-api/`：**只放行 `/api/v1/` 取码接口**，
+`/icloud-api/` 下其他路径（含管理面板 `/login`、`/manage`）一律 403，不对外暴露。
+端口仍只绑在 `127.0.0.1:8788`，外部流量一律经 nginx 进来。
+
 可达范围：
 
-| 调用方 | 可用地址 | 现状 |
+| 调用方 | 该用什么地址 | 状态 |
 |---|---|---|
-| 宿主进程 / nginx | `http://127.0.0.1:8788/...` | 可用 |
-| 同一 docker 网络的容器（如 register-engine） | `http://icloud-privacy-mail:8787/...` | 可用 |
-| 其他 docker 网络的容器 | 需把端口绑到对应网桥网关 | 未开放 |
-| 公网 / 其他服务器 | 需经 nginx 反代并加访问控制 | 未开放 |
+| 公网 / 其他服务器 | `https://gpt.xmxcode.com/icloud-api/api/v1/...` | ✅ 已开放 |
+| 宿主进程 / nginx | `http://127.0.0.1:8788/api/v1/...` | ✅ 可用 |
+| 同一 docker 网络的容器（如 register-engine） | `http://icloud-privacy-mail:8787/...` | ✅ 可用 |
 
-> 绑的是 `127.0.0.1`，所以公网不可达（已验证），不会把带 Key 的地址暴露出去。
-> 若要给远程项目用，建议走 nginx 加一层鉴权，别直接把 8788 绑到 0.0.0.0。
+注意事项：
+
+- 站点在 Cloudflare 后面。用**常规 User-Agent**（浏览器或 curl 的默认 UA 都行）；
+  极高频率的突发请求可能被 CF 的浏览器签名校验临时拦（错误码 `1010`），
+  间隔几秒重试即可，实测间隔 3 秒连打 8 次全部 200。
+- 地址里的 `key` 就是这个邮箱的 API Key，拿到就能读该邮箱的邮件。
+  **不要把这个地址贴到公开的地方**；需要作废时在 iCloud 页重建/停用该邮箱。
+- Cloudflare 会替换 5xx 响应体，所以这里同样只应出现 4xx 业务错误。
