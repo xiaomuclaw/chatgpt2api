@@ -13,6 +13,8 @@ services:
       IPM_UPDATE_ENABLED: "false"
       HTTP_PROXY: ${ICLOUD_PRIVACY_MAIL_HTTP_PROXY:-}
       HTTPS_PROXY: ${ICLOUD_PRIVACY_MAIL_HTTPS_PROXY:-}
+      # 代理池（逗号分隔）：sidecar 每次建连随机换出口并重试。
+      IPM_PROXY_URLS: ${IPM_PROXY_URLS:-}
       NO_PROXY: ${ICLOUD_PRIVACY_MAIL_NO_PROXY:-127.0.0.1,localhost,icloud-privacy-mail}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:

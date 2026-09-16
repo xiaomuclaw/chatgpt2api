@@ -29,7 +29,7 @@ type validateResult struct {
 }
 
 func NewICloudSessionValidator() *ICloudSessionValidator {
-	return &ICloudSessionValidator{httpClient: &http.Client{Timeout: 15 * time.Second}}
+	return &ICloudSessionValidator{httpClient: newHTTPClient(15 * time.Second)}
 }
 
 func (c *ICloudSessionValidator) Validate(ctx context.Context, cookies []SessionCookie, defaultHost string) (validateResult, error) {

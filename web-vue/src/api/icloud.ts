@@ -182,7 +182,7 @@ export const icloudApi = {
   checkImapLogin: (payload: { account_id?: string } = {}) =>
     apiClient.post<typeof payload, { message?: string; sessions?: ICloudSession[] }>(path('icloud/imap-login/check'), payload, requestConfig),
   createMailboxes: (payload: { account_ids?: string[]; label?: string; note?: string; create_channel?: string }) =>
-    apiClient.post<typeof payload, { message?: string; mailboxes?: ICloudMailbox[]; results?: unknown[] }>(path('icloud/mailboxes/create'), payload, requestConfig),
+    apiClient.post<typeof payload, { message?: string; mailboxes?: ICloudMailbox[]; results?: unknown[]; failures?: Array<{ apple_id?: string; code?: string; error?: string }> }>(path('icloud/mailboxes/create'), payload, requestConfig),
   syncMailboxes: (payload: { account_id?: string } = {}) =>
     apiClient.post<typeof payload, { message?: string; mailboxes?: ICloudMailbox[]; results?: ICloudMailboxSyncResult[] }>(path('icloud/mailboxes/sync'), payload, requestConfig),
   schedulerStatus: () => apiClient.get<never, { scheduler?: ICloudScheduler }>(path('icloud/scheduler/status'), requestConfig),

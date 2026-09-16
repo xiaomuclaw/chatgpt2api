@@ -256,9 +256,11 @@ let schedulerTimer: number | undefined
 const bridgeTone = computed(() => bridge.value?.reachable ? 'success' : bridge.value ? 'danger' : 'muted')
 const bridgeLabel = computed(() => bridge.value?.reachable ? '模块在线' : bridge.value ? '模块离线' : '检查中')
 const pageErrorTitle = computed(() => {
-  if (pageError.value.includes('未保存 iCloud 登录态')) return '尚未完成 Apple 登录'
-  if (/Apple (?:协议|服务|登录)/i.test(pageError.value)) return 'Apple 登录暂时失败'
-  return 'iCloud 模块暂不可用'
+  const text = pageError.value
+  if (/未保存[^。]*登录态|没有可用于|session_missing|请先完成.*登录/.test(text)) return '尚未完成 Apple 登录'
+  if (/Apple|appleid|apple_/i.test(text)) return 'Apple 登录失败'
+  if (/模块|bridge|Network Error|网络|超时|timeout|50[234]/i.test(text)) return 'iCloud 模块暂不可用'
+  return 'iCloud 操作失败'
 })
 const schedulerTone = computed(() => scheduler.value?.running ? 'success' : scheduler.value?.last_error ? 'danger' : 'muted')
 const schedulerLabel = computed(() => scheduler.value?.running ? '运行中' : scheduler.value?.last_error ? '已停止 / 有错误' : '未运行')
@@ -544,9 +546,17 @@ async function checkImap() {
 
 async function createMailboxes() {
   createBusy.value = true
+  pageError.value = ''
   try {
     const result = await icloudApi.createMailboxes({ account_ids: selectedAccountIds.value, ...createForm })
-    notice.value = result.message || `已创建 ${result.mailboxes?.length || 0} 个隐私邮箱`
+    const failures = (result.failures || []).filter(item => String(item.error || '').trim())
+    const created = result.mailboxes?.length || 0
+    if (!created && failures.length) {
+      pageError.value = failures.map(item => `${item.apple_id || '账号'}：${item.error}`).join('；')
+      notice.value = result.message || '创建失败，请查看上方原因'
+    } else {
+      notice.value = result.message || `已创建 ${created} 个隐私邮箱`
+    }
     await loadData()
   } catch (error) {
     pageError.value = errorText(error)

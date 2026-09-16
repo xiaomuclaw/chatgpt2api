@@ -118,3 +118,39 @@ DST=/opt/chatgpt2api/web-vue/src
 2. **备份数据**：升级前建议
    `tar czf /root/backup-$(date +%F).tgz /opt/chatgpt2api/data /opt/chatgpt2api/config.json /opt/chatgpt2api/register-engine/data`
 3. **浅克隆**：两个仓库都是浅克隆（历史不全），如需完整历史先 `git fetch --unshallow`。
+
+---
+
+## 务必保留：iCloud 代理出口配置（.env）
+
+`.env` 不在 Git 仓库里（含密钥），**升级不会自动带来这几行，也不能丢**。
+少了它们，Apple 协议登录会全部失败——Apple 对数据中心 IP 的认证端点直接
+返回 HTTP 503，表现为「Apple 登录失败」或「iCloud 模块暂不可用」。
+
+`/opt/chatgpt2api/.env` 必须包含（代理端口以 proxyhub 实际可用为准）：
+
+```bash
+ICLOUD_PRIVACY_MAIL_NO_PROXY=127.0.0.1,localhost,icloud-privacy-mail
+# Apple 认证拒绝数据中心 IP，必须经住宅代理出口
+IPM_PROXY_URLS=http://pool:<密码>@172.17.0.1:17026,http://pool:<密码>@172.17.0.1:17021,...
+ICLOUD_PRIVACY_MAIL_HTTP_PROXY=http://pool:<密码>@172.17.0.1:17026
+ICLOUD_PRIVACY_MAIL_HTTPS_PROXY=http://pool:<密码>@172.17.0.1:17026
+```
+
+要点：
+
+- `IPM_PROXY_URLS` 是**逗号分隔的代理池**，sidecar 每次建连随机取一个。
+  代理池单端口可用性约 85%，写多个端口才能容忍坏节点。
+- `NO_PROXY` **不要**包含 `.apple.com` / `.icloud.com`，否则 Apple 流量会绕过
+  代理直连，重新触发 503。
+- 更换代理池后需要重建 sidecar：
+  ```bash
+  docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d --build icloud-privacy-mail
+  ```
+- 实测某端口是否可用于 Apple：
+  ```bash
+  curl -s -o /dev/null -w '%{http_code}\n' -x 'http://pool:<密码>@172.17.0.1:<端口>' \
+    -X POST https://idmsa.apple.com/appleauth/auth/signin/init \
+    -H 'Content-Type: application/json' -d '{"accountName":"t@e.com","rememberMe":false}'
+  # 302/400 = 可用；503/000 = 不可用
+  ```

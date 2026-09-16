@@ -50,7 +50,7 @@ type ICloudMailCleanupResult struct {
 }
 
 func NewICloudClient() *ICloudClient {
-	return &ICloudClient{client: &http.Client{Timeout: 30 * time.Second}}
+	return &ICloudClient{client: newHTTPClient(30 * time.Second)}
 }
 
 const mailboxSyncCursorOverlap = 2 * time.Minute

@@ -133,7 +133,7 @@ type appleAuthPendingStore struct {
 }
 
 func NewAppleAuthClient() *AppleAuthClient {
-	return &AppleAuthClient{httpClient: &http.Client{Timeout: 30 * time.Second}}
+	return &AppleAuthClient{httpClient: newHTTPClient(30 * time.Second)}
 }
 
 func newAppleAuthPendingStore() *appleAuthPendingStore {

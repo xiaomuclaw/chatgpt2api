@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from urllib.parse import urljoin
 
 import httpx
@@ -55,6 +56,17 @@ def _response_headers(upstream: httpx.Response) -> list[tuple[str, str]]:
         if lower in {"content-type", "content-disposition", "cache-control", "x-content-type-options"}:
             headers.append((name, value))
     return headers
+
+
+def _has_structured_error(content: bytes) -> bool:
+    """判断上游 5xx 响应体是否携带可读的业务错误信息。"""
+    try:
+        payload = json.loads(content.decode("utf-8"))
+    except Exception:
+        return False
+    return isinstance(payload, dict) and any(
+        key in payload for key in ("code", "error", "message", "detail")
+    )
 
 
 def _existing_account_claims() -> dict[str, list[str]]:
@@ -121,21 +133,29 @@ async def _proxy_request(request: Request, upstream_path: str) -> Response:
                 content=body or None,
             )
     except httpx.HTTPError as exc:
+        # 用 4xx：Cloudflare 会替换 5xx 的响应体，前端就拿不到这条原因。
         raise HTTPException(
-            status_code=503,
+            status_code=424,
             detail={
                 "error": "icloud_privacy_mail_unavailable",
                 "message": f"iCloud Privacy Mail 模块不可用：{type(exc).__name__}",
             },
         ) from exc
+    status_code = upstream.status_code
+    origin_status = status_code
+    if status_code >= 500 and _has_structured_error(upstream.content):
+        # Cloudflare 会替换 5xx 响应体，降级为 4xx 才能把真实原因送到前端。
+        status_code = 400
     response = Response(
         content=upstream.content,
-        status_code=upstream.status_code,
+        status_code=status_code,
         media_type=None,
     )
     for name, value in _response_headers(upstream):
         response.headers.append(name, value)
     response.headers["X-ICloud-Privacy-Mail-Proxy"] = "1"
+    if status_code != origin_status:
+        response.headers["X-ICloud-Origin-Status"] = str(origin_status)
     return response
 
 

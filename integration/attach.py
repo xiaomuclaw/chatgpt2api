@@ -155,6 +155,7 @@ def patch_backend():
                 "      IPM_UPDATE_ENABLED: \"false\"\n"
                 "      HTTP_PROXY: ${ICLOUD_PRIVACY_MAIL_HTTP_PROXY:-}\n"
                 "      HTTPS_PROXY: ${ICLOUD_PRIVACY_MAIL_HTTPS_PROXY:-}\n"
+                "      IPM_PROXY_URLS: ${IPM_PROXY_URLS:-}\n"
                 "      NO_PROXY: ${ICLOUD_PRIVACY_MAIL_NO_PROXY:-127.0.0.1,localhost,icloud-privacy-mail}\n"
                 "      TZ: ${TZ:-Asia/Shanghai}\n"
                 "    volumes:\n"
