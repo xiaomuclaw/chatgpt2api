@@ -1,6 +1,6 @@
 <template>
-  <div class="space-y-6">
-    <PagePanel class="space-y-5">
+  <div class="space-y-6 icloud-page" :class="{ 'lg:flex lg:min-h-0 lg:flex-1 lg:flex-col': isWorkspaceLayout }">
+    <PagePanel class="space-y-5" :class="{ 'min-h-0 flex-1 overflow-y-auto scrollbar-slim': isWorkspaceLayout }">
       <PanelHeader title="iCloud 邮箱" align="start">
         <template #copy>
           <p class="mt-1 text-xs text-muted-foreground">
@@ -212,6 +212,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { Icon } from '@iconify/vue'
 import { Button, Input } from 'nanocat-ui'
 import { icloudApi, type ICloudMailbox, type ICloudMailboxSyncResult, type ICloudMessage, type ICloudScheduler, type ICloudSession } from '@/api/icloud'
+import { useListLayoutPreference } from '@/composables/useListLayoutPreference'
 import FormSection from '@/components/ai/FormSection.vue'
 import MetaChip from '@/components/ai/MetaChip.vue'
 import PagePanel from '@/components/ai/PagePanel.vue'
@@ -247,6 +248,7 @@ const mailboxPageSize = ref(20)
 const mailboxTotal = ref(0)
 const mailboxTotalPages = ref(1)
 const mailboxSearch = ref('')
+const { isWorkspaceLayout } = useListLayoutPreference()
 const syncFailures = ref<ICloudMailboxSyncResult[]>([])
 const scheduler = ref<ICloudScheduler | null>(null)
 const messagesByMailbox = reactive<Record<string, ICloudMessage[]>>({})

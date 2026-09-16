@@ -154,3 +154,75 @@ ICLOUD_PRIVACY_MAIL_HTTPS_PROXY=http://pool:<密码>@172.17.0.1:17026
     -H 'Content-Type: application/json' -d '{"accountName":"t@e.com","rememberMe":false}'
   # 302/400 = 可用；503/000 = 不可用
   ```
+
+---
+
+## 两个必查项：HME 转发目标 与 账号同步
+
+### 1. Hide My Email 的转发目标必须指向主号
+
+Apple 的隐私邮箱有个**全账号转发目标**。如果它指向外部邮箱（例如 QQ 邮箱），
+新建别名收到的邮件会被转到那里，本机 IMAP 永远取不到验证码，注册流程表现为
+`等待注册验证码超时`。
+
+查当前目标（会列出可选地址，`type=profile` 的即主号）：
+
+```bash
+python3 - <<'PY'
+import json, urllib.request
+s = json.load(open("/opt/chatgpt2api/data/icloud-privacy-mail/state.json"))["icloud_session"]
+ls = next(x for x in s["login_states"] if x.get("kind") == "apple_account")
+ck = ls["cookies"] if isinstance(ls["cookies"], str) else "; ".join(
+    "%s=%s" % (c.get("name"), c.get("value")) for c in ls["cookies"])
+req = urllib.request.Request("https://appleid.apple.com/account/manage/forwardemail")
+for k, v in (("User-Agent", ls["user_agent"]), ("X-Apple-Api-Key", ls["api_key"]),
+             ("scnt", ls["scnt"]), ("X-Apple-ID-Session-Id", ls.get("session_id", "")),
+             ("Cookie", ck)):
+    req.add_header(k, v)
+if ls.get("data_access_token"):
+    req.add_header("Authorization", "Bearer " + ls["data_access_token"])
+d = json.load(urllib.request.urlopen(req, timeout=40))
+print("当前转发目标:", (d.get("forwardToOptions") or {}).get("forwardToEmail"))
+for e in (d.get("forwardToOptions") or {}).get("availableEmails") or []:
+    print("  可选:", e.get("type"), e.get("address"))
+PY
+```
+
+改到主号（`PUT` + `forwardToEmail`，实测 200）：
+
+```bash
+curl -sS -X PUT https://appleid.apple.com/account/manage/forwardemail \
+  -H "Content-Type: application/json" \
+  -H "X-Apple-Api-Key: <api_key>" -H "scnt: <scnt>" \
+  -H "X-Apple-ID-Session-Id: <session_id>" -H "Cookie: <cookies>" \
+  -d '{"forwardToEmail":"<主号>"}'
+```
+
+sidecar 已在**每次创建别名后自动校正一次**（`ensureAppleAccountForwardTarget`），
+失败只打日志不影响创建。老别名不会自动改，需要时手动跑上面的 PUT，或重新创建。
+
+### 2. 账号同步的定时任务
+
+注册引擎注册出的账号需要同步进 chatgpt2api 账号池，由 crontab 每分钟执行。
+脚本路径必须指向真实文件：
+
+```bash
+cat /opt/sync_register_to_c2a.sh     # 必须 exec python3 /opt/chatgpt2api/sync_register_to_c2a.py
+tail -5 /var/log/register_c2a_sync.log   # 若刷 "No such file or directory" 说明路径写错了
+```
+
+手动同步一次并确认数量：
+
+```bash
+/opt/sync_register_to_c2a.sh          # 输出 synced N new account(s)
+```
+
+### 3. 注册流程调用 iCloud 实时创建
+
+注册引擎的 iCloud provider 在邮箱池为空时会自动调用 sidecar 的实时创建
+（`POST /api/icloud/mailboxes/create`，走 Apple Account 新接口）补一个再领取，
+并把 sidecar 返回的取码地址换成本容器可达的 sidecar 地址。
+无需预先囤邮箱，注册时按需创建。
+
+> 新接口每账号每小时约 20 个（旧接口约 5 个），触顶后 Apple 返回限流，
+> sidecar 会进入冷却。批量注册时留出间隔。

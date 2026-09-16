@@ -277,6 +277,36 @@ func (c *ICloudClient) refreshAppleAccountManageStateForCreate(ctx context.Conte
 	return loginState, session, nil
 }
 
+// ensureAppleAccountForwardTarget 把 Hide My Email 的全账号转发目标指向主号。
+//
+// Apple 的 HME 转发目标如果指向外部邮箱（例如 QQ），别名的邮件会被转走，
+// 本机收件同步就永远取不到验证码。创建别名后主动校正一次，保证验证码
+// 能落到主号收件箱。
+func (c *ICloudClient) ensureAppleAccountForwardTarget(ctx context.Context, loginState *LoginState, apiKey, appleID string) error {
+	if loginState == nil {
+		return errCode("apple_account_session_missing", "当前登录态缺少 Apple Account 管理态", true)
+	}
+	target := strings.ToLower(strings.TrimSpace(appleID))
+	if target == "" {
+		return nil
+	}
+	var current struct {
+		ForwardToOptions struct {
+			ForwardToEmail struct {
+				Address string `json:"address"`
+			} `json:"forwardToEmail"`
+		} `json:"forwardToOptions"`
+	}
+	if err := c.callAppleAccount(ctx, loginState, apiKey, http.MethodGet, "/account/manage/forwardemail", nil, &current); err != nil {
+		return err
+	}
+	if strings.EqualFold(strings.TrimSpace(current.ForwardToOptions.ForwardToEmail.Address), target) {
+		return nil
+	}
+	return c.callAppleAccount(ctx, loginState, apiKey, http.MethodPut, "/account/manage/forwardemail",
+		map[string]string{"forwardToEmail": target}, nil)
+}
+
 func (c *ICloudClient) createPrivacyMailboxWithAppleAccountState(ctx context.Context, session ICloudSession, loginState LoginState, fallbackAPIKey, label, note string) (ICloudRemoteMailbox, ICloudSession, error) {
 	apiKey := strings.TrimSpace(firstNonEmpty(loginState.APIKey, fallbackAPIKey))
 	if apiKey == "" {
@@ -346,9 +376,20 @@ func (c *ICloudClient) createPrivacyMailboxWithAppleAccountState(ctx context.Con
 	if remote.Email == "" {
 		return ICloudRemoteMailbox{}, session, errCode("apple_account_create_empty", "Apple Account 创建后未返回隐私邮箱；"+appleAccountRawResponseDetail("确认创建隐私邮箱", completedRaw), true)
 	}
+	if err := c.ensureAppleAccountForwardTarget(ctx, &loginState, apiKey, session.AppleID); err != nil {
+		// 转发目标没改成功不影响别名本身；只提示，便于排查取码收不到的问题。
+		logAppleAccountForwardTargetFailure(remote.Email, err)
+	}
 	markAppleAccountManageOK(&loginState)
 	session = withAppleAccountLoginState(session, loginState)
 	return remote, session, nil
+}
+
+func logAppleAccountForwardTargetFailure(email string, err error) {
+	if os.Getenv("IPM_QUIET_FORWARD_TARGET") == "1" {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "apple account forward target not updated for %s: %v\n", email, err)
 }
 
 func (c *ICloudClient) RefreshAppleAccountManageState(ctx context.Context, loginState LoginState) (LoginState, error) {
