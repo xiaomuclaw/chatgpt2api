@@ -226,3 +226,41 @@ tail -5 /var/log/register_c2a_sync.log   # 若刷 "No such file or directory" �
 
 > 新接口每账号每小时约 20 个（旧接口约 5 个），触顶后 Apple 返回限流，
 > sidecar 会进入冷却。批量注册时留出间隔。
+
+---
+
+## 别名邮箱的取码地址（给别的项目调用）
+
+每个隐私邮箱都有一条取码地址，形如：
+
+```
+http://127.0.0.1:8788/api/v1/mailboxes/<别名邮箱>/code?key=<该邮箱的API Key>
+```
+
+带 `keyword` 与 `wait_ms` 参数，返回 JSON：成功是 `{"success":true,"code":"123456",...}`，
+没收到信是 `{"success":false,"code":"no_code"}`。**这条链路实测可用**：发一封含
+验证码的邮件到别名，该地址能原样取回验证码。
+
+**但这个地址依赖 sidecar 端口被发布**。sidecar 的 API 在容器内是 8787，
+`IPM_PUBLIC_BASE_URL` 指向宿主 8788；如果 8788 没被映射出来，地址是死的
+（连接被拒）。发布配置在 `deploy.local.yml`：
+
+```yaml
+  icloud-privacy-mail:
+    ports: !override
+      - "127.0.0.1:8788:8787"
+```
+
+改动后重建：`docker compose -f docker-compose.yml -f deploy.local.yml --profile local-icloud up -d icloud-privacy-mail`
+
+可达范围：
+
+| 调用方 | 可用地址 | 现状 |
+|---|---|---|
+| 宿主进程 / nginx | `http://127.0.0.1:8788/...` | 可用 |
+| 同一 docker 网络的容器（如 register-engine） | `http://icloud-privacy-mail:8787/...` | 可用 |
+| 其他 docker 网络的容器 | 需把端口绑到对应网桥网关 | 未开放 |
+| 公网 / 其他服务器 | 需经 nginx 反代并加访问控制 | 未开放 |
+
+> 绑的是 `127.0.0.1`，所以公网不可达（已验证），不会把带 Key 的地址暴露出去。
+> 若要给远程项目用，建议走 nginx 加一层鉴权，别直接把 8788 绑到 0.0.0.0。
